@@ -1,5 +1,8 @@
 <?php
 
+define('WP_DEBUG', true);
+define('WP_DEBUG_LOG', true);
+
 /*
 Plugin Name: WP-OAuth
 Plugin URI: http://github.com/perrybutler/wp-oauth
@@ -14,7 +17,7 @@ License: GPL2
 session_start();
 
 // plugin class:
-Class WPOA {
+cLass WPOA {
 
 	// ==============
 	// INITIALIZATION
@@ -389,7 +392,13 @@ Class WPOA {
 		$user = get_user_by('id', $query_result);
 		return $user;
 	}
-	
+
+  function wpoa_log($msg) {
+    $log = fopen("wpoa_debug.log", "a");
+    fwrite($log, "$msg\n");
+    fclose($log);
+  }
+
 	// login (or register and login) a wordpress user based on their oauth identity:
 	function wpoa_login_user($oauth_identity) {
 		// store the user info in the user session so we can grab it later if we need to register the user:
@@ -399,13 +408,7 @@ Class WPOA {
 		// handle the matched user if there is one:
 		if ( $matched_user ) {
 			// there was a matching wordpress user account, log it in now:
-			$user_id = $matched_user->ID;
-			$user_login = $matched_user->user_login;
-			wp_set_current_user( $user_id, $user_login );
-			wp_set_auth_cookie( $user_id );
-			do_action( 'wp_login', $user_login, $matched_user );
-			// after login, redirect to the user's last location
-			$this->wpoa_end_login("Logged in successfully!");
+      $this->wpoa_do_login($matched_user);
 		}
 		// handle the already logged in user if there is one:
 		if ( is_user_logged_in() ) {
@@ -419,13 +422,54 @@ Class WPOA {
 		}
 		// handle the logged out user or no matching user (register the user):
 		if ( !is_user_logged_in() && !$matched_user ) {
+      $this->wpoa_log("no matching user: " . $oauth_identity['email']);
 			// this person is not logged into a wordpress account and has no third party authentications registered, so proceed to register the wordpress user:
-			include 'register.php';
+      $new_user = $this->wpoa_register_user(
+        $oauth_identity['email'],
+        $oauth_identity['name']
+      );
 		}
 		// we shouldn't be here, but just in case...
 		$this->wpoa_end_login("Sorry, we couldn't log you in. The login flow terminated in an unexpected way. Please notify the admin or try again later.");
 	}
-	
+
+  function wpoa_register_user($name, $email) {
+    $this->wpoa_log("registering new user: {$name} {$email}");
+    $password = wp_generate_password( $length=12, $include_standard_special_chars=false );
+    $name = trim($name);
+    if (empty($name)) $name = $email;
+    $user_id = wp_create_user( $name, $password, $email );
+    $this->wpoa_log("registered new user: $user_id $password");
+    $role = get_option('wpoa_new_user_role');
+    $update_role_result = wp_update_user(array('ID' => $user_id, 'role' => $role));
+    $this->wpoa_log("update_role_result: $update_role_result");
+    $this->wpoa_link_account($user_id);
+		$new_user = get_user_by('id', $user_id);
+    $this->wpoa_do_login($new_user, $password);
+  }
+
+  function wpoa_do_login($user, $pass) {
+    $this->wpoa_log("logging in user: $user->user_id, $user->user_login, $user->user_pass");
+    if (!isset($pass)) {
+      wp_set_current_user( $user->user_id, $user->user_login );
+      wp_set_auth_cookie( $user->user_id );
+      //call the hook that others may sub to
+      do_action( 'wp_login', $user->user_login, $user );
+    } else {
+      $creds = array(
+        'user_login' => $user->user_login,
+        'user_password' => $pass,
+        'remember' => true
+      );
+      //proper signon, but you need an unhashed password
+      $signedin_user = wp_signon( $creds, false );
+      if ( is_wp_error($signedin_user) )
+        $this->wpoa_log($user->get_error_message());
+    }
+    // after login, redirect to the user's last location
+    $this->wpoa_end_login("Logged in successfully!");
+  }
+
 	// ends the login request by clearing the login state and redirecting the user to the desired page:
 	function wpoa_end_login($msg) {
 		$last_url = $_SESSION["WPOA"]["LAST_URL"];
