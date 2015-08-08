@@ -449,10 +449,10 @@ cLass WPOA {
   }
 
   function wpoa_do_login($user, $pass) {
-    $this->wpoa_log("logging in user: $user->user_id, $user->user_login, $user->user_pass");
+    $this->wpoa_log("logging in user: $user->ID, $user->user_login, $user->user_pass");
     if (!isset($pass)) {
-      wp_set_current_user( $user->user_id, $user->user_login );
-      wp_set_auth_cookie( $user->user_id );
+      wp_set_current_user( $user->ID, $user->user_login );
+      wp_set_auth_cookie( $user->ID );
       //call the hook that others may sub to
       do_action( 'wp_login', $user->user_login, $user );
     } else {
