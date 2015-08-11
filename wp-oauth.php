@@ -13,6 +13,13 @@ Author URI: http://glassocean.net
 License: GPL2
 */
 
+function wpoa_log($msg) {
+  $log = fopen("wpoa_debug.log", "a");
+  fwrite($log, "$msg\n");
+  fclose($log);
+}
+
+
 // start the user session for persisting user/login state during ajax, header redirect, and cross domain calls:
 session_start();
 
@@ -393,63 +400,61 @@ cLass WPOA {
 		return $user;
 	}
 
-  function wpoa_log($msg) {
-    $log = fopen("wpoa_debug.log", "a");
-    fwrite($log, "$msg\n");
-    fclose($log);
-  }
-
 	// login (or register and login) a wordpress user based on their oauth identity:
 	function wpoa_login_user($oauth_identity) {
 		// store the user info in the user session so we can grab it later if we need to register the user:
 		$_SESSION["WPOA"]["USER_ID"] = $oauth_identity["id"];
+    wpoa_log("wpoa_login_user: started login for user " . $oauth_identity["id"]);
 		// try to find a matching wordpress user for the now-authenticated user's oauth identity:
 		$matched_user = $this->wpoa_match_wordpress_user($oauth_identity);
 		// handle the matched user if there is one:
 		if ( $matched_user ) {
+      wpoa_log("wpoa_login_user: user match");
 			// there was a matching wordpress user account, log it in now:
       $this->wpoa_do_login($matched_user);
-		}
-		// handle the already logged in user if there is one:
-		if ( is_user_logged_in() ) {
-			// there was a wordpress user logged in, but it is not associated with the now-authenticated user's email address, so associate it now:
-			global $current_user;
-			get_currentuserinfo();
-			$user_id = $current_user->ID;
-			$this->wpoa_link_account($user_id);
-			// after linking the account, redirect user to their last url
-			$this->wpoa_end_login("Your account was linked successfully with your third party authentication provider.");
-		}
-		// handle the logged out user or no matching user (register the user):
-		if ( !is_user_logged_in() && !$matched_user ) {
-      $this->wpoa_log("no matching user: " . $oauth_identity['email']);
-			// this person is not logged into a wordpress account and has no third party authentications registered, so proceed to register the wordpress user:
-      $new_user = $this->wpoa_register_user(
-        $oauth_identity['email'],
-        $oauth_identity['name']
-      );
-		}
-		// we shouldn't be here, but just in case...
-		$this->wpoa_end_login("Sorry, we couldn't log you in. The login flow terminated in an unexpected way. Please notify the admin or try again later.");
+		} else {
+      wpoa_log("wpoa_login_user: NO user match");
+      // handle the already logged in user if there is one:
+      if ( is_user_logged_in() ) {
+        // there was a wordpress user logged in, but it is not associated with the now-authenticated user's email address, so associate it now:
+        global $current_user;
+        get_currentuserinfo();
+        $user_id = $current_user->ID;
+        $this->wpoa_link_account($user_id);
+
+        wpoa_log("wpoa_login_user: linking to logged in user");
+        // after linking the account, redirect user to their last url
+        $this->wpoa_end_login("Your account was linked successfully with your third party authentication provider.");
+      } else {
+        wpoa_log("wpoa_login_user: NOT logged in user");
+        // handle the logged out user or no matching user (register the user):
+        wpoa_log("no matching user: " . $oauth_identity['email']);
+        // this person is not logged into a wordpress account and has no third party authentications registered, so proceed to register the wordpress user:
+        $new_user = $this->wpoa_register_user(
+          $oauth_identity['email'],
+          $oauth_identity['name']
+        );
+      }
+    }
 	}
 
   function wpoa_register_user($name, $email) {
-    $this->wpoa_log("registering new user: {$name} {$email}");
+    wpoa_log("registering new user: {$name} {$email}");
     $password = wp_generate_password( $length=12, $include_standard_special_chars=false );
     $name = trim($name);
     if (empty($name)) $name = $email;
     $user_id = wp_create_user( $name, $password, $email );
-    $this->wpoa_log("registered new user: $user_id $password");
+    wpoa_log("registered new user: $user_id $password");
     $role = get_option('wpoa_new_user_role');
     $update_role_result = wp_update_user(array('ID' => $user_id, 'role' => $role));
-    $this->wpoa_log("update_role_result: $update_role_result");
+    wpoa_log("update_role_result: $update_role_result");
     $this->wpoa_link_account($user_id);
 		$new_user = get_user_by('id', $user_id);
     $this->wpoa_do_login($new_user, $password);
   }
 
   function wpoa_do_login($user, $pass) {
-    $this->wpoa_log("logging in user: $user->ID, $user->user_login, $user->user_pass");
+    wpoa_log("logging in user: $user->ID, $user->user_login, $user->user_pass");
     if (!isset($pass)) {
       wp_set_current_user( $user->ID, $user->user_login );
       wp_set_auth_cookie( $user->ID );
@@ -464,7 +469,7 @@ cLass WPOA {
       //proper signon, but you need an unhashed password
       $signedin_user = wp_signon( $creds, false );
       if ( is_wp_error($signedin_user) )
-        $this->wpoa_log($user->get_error_message());
+        wpoa_log($user->get_error_message());
     }
     // after login, redirect to the user's last location
     $this->wpoa_end_login("Logged in successfully!");

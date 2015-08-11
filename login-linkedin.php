@@ -1,5 +1,11 @@
 <?php
 
+function lilog($msg) {
+  $log = fopen("wpoa_debug_linkedin.log", "a");
+  fwrite($log, "$msg\n");
+  fclose($log);
+}
+
 // start the user session for maintaining individual user states during the multi-stage authentication flow:
 session_start();
 
@@ -10,7 +16,7 @@ define('CLIENT_ENABLED', get_option('wpoa_linkedin_api_enabled'));
 define('CLIENT_ID', get_option('wpoa_linkedin_api_id'));
 define('CLIENT_SECRET', get_option('wpoa_linkedin_api_secret'));
 define('REDIRECT_URI', rtrim(site_url(), '/') . '/');
-define('SCOPE', 'r_basicprofile'); // PROVIDER SPECIFIC: 'r_basicprofile' is the minimum scope required to get the user's id from LinkedIn
+define('SCOPE', 'r_emailaddress'); // PROVIDER SPECIFIC: 'r_basicprofile' is the minimum scope required to get the user's id from LinkedIn
 define('URL_AUTH', "https://www.linkedin.com/uas/oauth2/authorization?");
 define('URL_TOKEN', "https://www.linkedin.com/uas/oauth2/accessToken?");
 define('URL_USER', "https://api.linkedin.com/v1/people/~:(id,email-address)?");
@@ -38,29 +44,32 @@ elseif (!CLIENT_ID || !CLIENT_SECRET) {
 	$this->wpoa_end_login("This third-party authentication provider has not been configured with an API key/secret. Please notify the admin or try again later.");
 }
 elseif (isset($_GET['error_description'])) {
+  lilog("got to error description" . $_GET['error_description']);
 	// do not proceed if an error was detected:
 	$this->wpoa_end_login($_GET['error_description']);
 }
 elseif (isset($_GET['error_message'])) {
+  lilog("got to error message" . $_GET['error_message']);
 	// do not proceed if an error was detected:
 	$this->wpoa_end_login($_GET['error_message']);
 }
 elseif (isset($_GET['code'])) {
+  lilog("got to code" . $_GET['code']);
 	// post-auth phase, verify the state:
 	if ($_SESSION['WPOA']['STATE'] == $_GET['state']) {
 		// get an access token from the third party provider:
 		get_oauth_token($this);
 		// get the user's third-party identity and attempt to login/register a matching wordpress user account:
 		$oauth_identity = get_oauth_identity($this);
+    lilog("logging in user $oauth_identity");
 		$this->wpoa_login_user($oauth_identity);
-	}
-	else {
+	} else {
+    lilog("no token match" . $_GET['state']);
 		// possible CSRF attack, end the login with a generic message to the user and a detailed message to the admin/logs in case of abuse:
 		// TODO: report detailed message to admin/logs here...
 		$this->wpoa_end_login("Sorry, we couldn't log you in. Please notify the admin or try again later.");
 	}
-}
-else {
+} else {
 	// pre-auth, start the auth process:
 	if ((empty($_SESSION['WPOA']['EXPIRES_AT'])) || (time() > $_SESSION['WPOA']['EXPIRES_AT'])) {
 		// expired token; clear the state:
@@ -74,6 +83,7 @@ $this->wpoa_end_login("Sorry, we couldn't log you in. The authentication flow te
 
 # AUTHENTICATION FLOW HELPER FUNCTIONS #
 function get_oauth_code($wpoa) {
+  lilog("get_oauth_code. redir:" . REDIRECT_URI);
 	$params = array(
 		'response_type' => 'code',
 		'client_id' => CLIENT_ID,
@@ -88,6 +98,7 @@ function get_oauth_code($wpoa) {
 }
 
 function get_oauth_token($wpoa) {
+  lilog("get_oauth_token. method:" . HTTP_UTIL);
 	$params = array(
 		'grant_type' => 'authorization_code',
 		'client_id' => CLIENT_ID,
@@ -126,13 +137,15 @@ function get_oauth_token($wpoa) {
 			}
 			break;
 	}
+  lilog("get_oauth_token. result: $result");
 	// parse the result:
 	$result_obj = json_decode($result, true); // PROVIDER SPECIFIC: LinkedIn encodes the access token result as json by default
 	$access_token = $result_obj['access_token']; // PROVIDER SPECIFIC: this is how LinkedIn returns the access token KEEP THIS PROTECTED!
 	$expires_in = $result_obj['expires_in']; // PROVIDER SPECIFIC: this is how LinkedIn returns the access token's expiration
 	$expires_at = time() + $expires_in;
-	// handle the result:
+	// HANdle the result:
 	if (!$access_token || !$expires_in) {
+    lilog("no access token or expiry: $expires_in");
 		// malformed access token result detected:
 		$wpoa->wpoa_end_login("Sorry, we couldn't log you in. Malformed access token result detected. Please notify the admin or try again later.");
 	}
@@ -140,11 +153,13 @@ function get_oauth_token($wpoa) {
 		$_SESSION['WPOA']['ACCESS_TOKEN'] = $access_token;
 		$_SESSION['WPOA']['EXPIRES_IN'] = $expires_in;
 		$_SESSION['WPOA']['EXPIRES_AT'] = $expires_at;
+    lilog("put stuff in session: $expires_in");
 		return true;
 	}
 }
 
 function get_oauth_identity($wpoa) {
+  lilog("get_oauth_identity. method: " . HTTP_UTIL);
 	// here we exchange the access token for the user info...
 	// set the access token param:
 	$params = array(
@@ -180,11 +195,13 @@ function get_oauth_identity($wpoa) {
 			$result_obj = json_decode($result, true);
 			break;
 	}
+
+  lilog("get_oauth_identity. result: $result");
 	// parse and return the user's oauth identity:
 	$oauth_identity = array();
 	$oauth_identity['provider'] = $_SESSION['WPOA']['PROVIDER'];
 	$oauth_identity['id'] = $result_obj['id']; // PROVIDER SPECIFIC: this is how LinkedIn returns the user's unique id
-	//$oauth_identity['email'] = $result_obj['emailAddress']; //PROVIDER SPECIFIC: this is how LinkedIn returns the email address
+	$oauth_identity['email'] = $result_obj['emailAddress']; //PROVIDER SPECIFIC: this is how LinkedIn returns the email address
 	if (!$oauth_identity['id']) {
 		$wpoa->wpoa_end_login("Sorry, we couldn't log you in. User identity was not found. Please notify the admin or try again later.");
 	}
