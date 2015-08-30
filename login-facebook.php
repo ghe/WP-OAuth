@@ -1,5 +1,11 @@
 <?php
 
+function fblog($msg) {
+  $log = fopen("wpoa_debug_facebook.log", "a");
+  fwrite($log, "$msg\n");
+  fclose($log);
+}
+
 // start the user session for maintaining individual user states during the multi-stage authentication flow:
 session_start();
 
@@ -29,20 +35,24 @@ elseif (!CLIENT_ID || !CLIENT_SECRET) {
 	$this->wpoa_end_login("This third-party authentication provider has not been configured with an API key/secret. Please notify the admin or try again later.");
 }
 elseif (isset($_GET['error_description'])) {
+  fblog("got to error description" . $_GET['error_description']);
 	// do not proceed if an error was detected:
 	$this->wpoa_end_login($_GET['error_description']);
 }
 elseif (isset($_GET['error_message'])) {
+  fblog("got to error description" . $_GET['error_message']);
 	// do not proceed if an error was detected:
 	$this->wpoa_end_login($_GET['error_message']);
 }
 elseif (isset($_GET['code'])) {
+  fblog("got to code" . $_GET['code']);
 	// post-auth phase, verify the state:
 	if ($_SESSION['WPOA']['STATE'] == $_GET['state']) {
 		// get an access token from the third party provider:
 		get_oauth_token($this);
 		// get the user's third-party identity and attempt to login/register a matching wordpress user account:
 		$oauth_identity = get_oauth_identity($this);
+    fblog("logging in user " + $oauth_identity['email']);
 		$this->wpoa_login_user($oauth_identity);
 	}
 	else {
@@ -50,8 +60,7 @@ elseif (isset($_GET['code'])) {
 		// TODO: report detailed message to admin/logs here...
 		$this->wpoa_end_login("Sorry, we couldn't log you in. Please notify the admin or try again later.");
 	}
-}
-else {
+} else {
 	// pre-auth, start the auth process:
 	if ((empty($_SESSION['WPOA']['EXPIRES_AT'])) || (time() > $_SESSION['WPOA']['EXPIRES_AT'])) {
 		// expired token; clear the state:
@@ -65,6 +74,7 @@ $this->wpoa_end_login("Sorry, we couldn't log you in. The authentication flow te
 
 # AUTHENTICATION FLOW HELPER FUNCTIONS #
 function get_oauth_code($wpoa) {
+  fblog("get_oauth_code. redir:" . REDIRECT_URI);
 	$params = array(
 		'response_type' => 'code',
 		'client_id' => CLIENT_ID,
@@ -79,6 +89,7 @@ function get_oauth_code($wpoa) {
 }
 
 function get_oauth_token($wpoa) {
+  fblog("get_oauth_token. method:" . HTTP_UTIL);
 	$params = array(
 		'grant_type' => 'authorization_code',
 		'client_id' => CLIENT_ID,
@@ -117,6 +128,7 @@ function get_oauth_token($wpoa) {
 			}
 			break;
 	}
+  fblog("get_oauth_token. result: $result");
 	// parse the result:
 	parse_str($result, $result_obj); // PROVIDER SPECIFIC: Facebook encodes the access token result as a querystring by default
 	$access_token = $result_obj['access_token']; // PROVIDER SPECIFIC: this is how Facebook returns the access token KEEP THIS PROTECTED!
@@ -172,15 +184,22 @@ function get_oauth_identity($wpoa) {
 			$result_obj = json_decode($result, true);
 			break;
 	}
+  fblog("get_oauth_identity. result: $result");
 	// parse and return the user's oauth identity:
 	$oauth_identity = array();
 	$oauth_identity['provider'] = $_SESSION['WPOA']['PROVIDER'];
 	$oauth_identity['id'] = $result_obj['id']; // PROVIDER SPECIFIC: this is how Facebook returns the user's unique id
-	//$oauth_identity['email'] = $result_obj['email']; //PROVIDER SPECIFIC: this is how Facebook returns the email address
+	$oauth_identity['email'] = $result_obj['email']; //PROVIDER SPECIFIC: this is how Facebook returns the email address
 	if (!$oauth_identity['id']) {
-		$wpoa->wpoa_end_login("Sorry, we couldn't log you in. User identity was not found. Please notify the admin or try again later.");
+    fblog("get_oauth_identity. FAIL: $oauth_identity");
+		$wpoa->wpoa_end_login("Sorry, we couldn't log you in. Facebook did not return a valid user");
 	}
+	if (!$oauth_identity['email']) {
+    fblog("get_oauth_identity. FAIL: $oauth_identity");
+		$wpoa->wpoa_end_login("Sorry, we couldn't log you in. Facebook did not return a valid email. Make sure it is enabled on your timeline");
+	}
+  fblog("get_oauth_identity. returns: $oauth_identity");
 	return $oauth_identity;
 }
-# END OF AUTHENTICATION FLOW HELPER FUNCTIONS #
+# END OF AUtHENTICATION FLOW HELPER FUNCTIONS #
 ?>

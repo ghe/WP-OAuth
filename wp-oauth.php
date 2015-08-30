@@ -443,6 +443,9 @@ cLass WPOA {
     $password = wp_generate_password( $length=12, $include_standard_special_chars=false );
     $name = trim($name);
     if (empty($name)) $name = $email;
+    if (empty($name)) {
+      $this->wpoa_end_login("Unable to register user without email address");
+    }
     $user_id = wp_create_user( $name, $password, $email );
     wpoa_log("registered new user: $user_id $password");
     $role = get_option('wpoa_new_user_role');
